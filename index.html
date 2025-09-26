@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover" />
+<title>AR風 看板カメラ（反転なし）</title>
+<style>
+html,body{height:100%;margin:0;background:#000;-webkit-user-select:none;user-select:none;}
+#app{position:fixed;inset:0;display:flex;align-items:stretch;justify-content:stretch;}
+video#cam{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
+#overlay{position:absolute;inset:0;touch-action:none;}
+.sticker{position:absolute;left:50%;top:50%;transform-origin:center center;will-change:transform;touch-action:none;user-select:none;-webkit-user-drag:none;max-width:90vw;max-height:80vh;pointer-events:auto;}
+#ui{position:fixed;right:10px;bottom:10px;z-index:1000;display:flex;gap:8px;flex-direction:column;}
+button{font-size:14px;padding:8px 10px;border-radius:8px;border:none;background:#fff;color:#111;}
+</style>
+</head>
+<body>
+<div id="app">
+  <video id="cam" autoplay playsinline muted></video>
+  <div id="overlay">
+    <img id="sticker" class="sticker" src="ceremony_sign.png" alt="看板" />
+  </div>
+</div>
+
+<div id="ui">
+  <button id="btnSnap">写真を撮る（ダウンロード）</button>
+  <button id="btnReset">初期位置に戻す</button>
+</div>
+
+<script>
+(async function(){
+  const video = document.getElementById('cam');
+  const sticker = document.getElementById('sticker');
+  const overlay = document.getElementById('overlay');
+  const btnSnap = document.getElementById('btnSnap');
+  const btnReset = document.getElementById('btnReset');
+
+  // カメラ起動（反転なし）
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio:false });
+    video.srcObject = stream;
+    // 反転無効
+    video.style.transform = "none";
+  }catch(e){
+    alert('カメラへのアクセスが必要です。ブラウザの設定で許可してください。');
+    console.error(e);
+    return;
+  }
+
+  // 初期状態
+  let state = { x: 0, y: -80, scale: 1, rotation: 0 };
+  function applyTransform(){ stic
