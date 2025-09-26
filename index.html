@@ -3,16 +3,15 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover" />
-<title>AR風 看板カメラ</title>
+<title>AR風 看板カメラ（高解像度版）</title>
 <style>
 html,body{height:100%;margin:0;background:#000;-webkit-user-select:none;user-select:none;}
 #app{position:fixed;inset:0;display:flex;align-items:stretch;justify-content:stretch;}
-video#cam{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1);}
+video#cam{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
 #overlay{position:absolute;inset:0;touch-action:none;}
 .sticker{position:absolute;left:50%;top:50%;transform-origin:center center;will-change:transform;touch-action:none;user-select:none;-webkit-user-drag:none;max-width:90vw;max-height:80vh;pointer-events:auto;}
 #ui{position:fixed;right:10px;bottom:10px;z-index:1000;display:flex;gap:8px;flex-direction:column;}
 button{font-size:14px;padding:8px 10px;border-radius:8px;border:none;background:#fff;color:#111;}
-#note{position:fixed;left:10px;top:10px;z-index:1000;background:rgba(0,0,0,0.5);color:#fff;padding:6px 8px;border-radius:6px;font-family:sans-serif;font-size:13px;}
 </style>
 </head>
 <body>
@@ -23,10 +22,8 @@ button{font-size:14px;padding:8px 10px;border-radius:8px;border:none;background:
   </div>
 </div>
 
-<div id="note">カメラを許可 → 看板を配置 → 写真を撮る</div>
-
 <div id="ui">
-  <button id="btnSnap">写真を撮る</button>
+  <button id="btnSnap">写真を撮る（ダウンロード）</button>
   <button id="btnReset">初期位置に戻す</button>
 </div>
 
@@ -40,8 +37,17 @@ button{font-size:14px;padding:8px 10px;border-radius:8px;border:none;background:
 
   // カメラ起動
   try{
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio:false });
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio:false });
     video.srcObject = stream;
+
+    const track = stream.getVideoTracks()[0];
+    const settings = track.getSettings();
+    // 前面カメラの場合だけ左右反転
+    if(settings.facingMode === "user") {
+      video.style.transform = "scaleX(-1)";
+    } else {
+      video.style.transform = "none";
+    }
   }catch(e){
     alert('カメラへのアクセスが必要です。ブラウザの設定で許可してください。');
     console.error(e);
@@ -79,34 +85,47 @@ button{font-size:14px;padding:8px 10px;border-radius:8px;border:none;background:
   // 初期化
   btnReset.addEventListener('click', ()=>{ state.x=0; state.y=-80; state.scale=1; state.rotation=0; applyTransform(); });
 
-  // 写真撮影（UI非表示でキャプチャ）
+  // 写真撮影（高解像度）
   btnSnap.addEventListener('click', ()=>{
-    // UI非表示
     btnSnap.style.display='none';
     btnReset.style.display='none';
 
-    const displayW=video.clientWidth, displayH=video.clientHeight;
-    const canvas=document.createElement('canvas'); canvas.width=displayW; canvas.height=displayH;
-    const ctx=canvas.getContext('2d');
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
 
     // カメラ映像
-    ctx.translate(displayW,0); ctx.scale(-1,1);
-    ctx.drawImage(video,0,0,displayW,displayH);
+    if(video.style.transform === 'scaleX(-1)') {
+      ctx.translate(canvas.width,0);
+      ctx.scale(-1,1);
+    }
+    ctx.drawImage(video,0,0,canvas.width,canvas.height);
     ctx.setTransform(1,0,0,1,0,0);
 
-    // 看板合成
-    const sRect=sticker.getBoundingClientRect(), oRect=video.getBoundingClientRect();
-    const sx=sRect.left-oRect.left, sy=sRect.top-oRect.top, sw=sRect.width, sh=sRect.height;
-    ctx.save(); ctx.translate(sx+sw/2,sy+sh/2); ctx.rotate(state.rotation*Math.PI/180); ctx.drawImage(sticker,-sw/2,-sh/2,sw,sh); ctx.restore();
+    // 看板描画
+    const sRect = sticker.getBoundingClientRect();
+    const vRect = video.getBoundingClientRect();
+    const scaleX = canvas.width / vRect.width;
+    const scaleY = canvas.height / vRect.height;
+    const sx = (sRect.left - vRect.left) * scaleX;
+    const sy = (sRect.top - vRect.top) * scaleY;
+    const sw = sRect.width * scaleX;
+    const sh = sRect.height * scaleY;
+
+    ctx.save();
+    ctx.translate(sx + sw/2, sy + sh/2);
+    ctx.rotate(state.rotation * Math.PI / 180);
+    ctx.drawImage(sticker, -sw/2, -sh/2, sw, sh);
+    ctx.restore();
 
     // ダウンロード
-    const url=canvas.toDataURL('image/png'); 
-    const a=document.createElement('a'); 
-    a.href=url; 
-    a.download='ar_photo.png'; 
+    const url = canvas.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'ar_photo.png';
     a.click();
 
-    // UI再表示
     btnSnap.style.display='block';
     btnReset.style.display='block';
   });
