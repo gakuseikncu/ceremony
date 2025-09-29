@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
+<title>AR風 看板カメラ（高解像度版）</title>
+<style>
+html,body{height:100%;margin:0;background:#000;-webkit-user-select:none;user-select:none;}
+#app{position:fixed;inset:0;display:flex;align-items:stretch;justify-content:stretch;}
+video#cam{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
+#overlay{position:absolute;inset:0;touch-action:none;}
+.sticker{position:absolute;left:50%;top:50%;transform-origin:center center;will-change:transform;touch-action:none;user-select:none;-webkit-user-drag:none;max-width:90vw;max-height:80vh;pointer-events:auto;}
+#ui{position:fixed;right:10px;bottom:10px;z-index:1000;display:flex;gap:8px;flex-direction:column;}
+button{font-size:14px;padding:8px 10px;border-radius:8px;border:none;background:#fff;color:#111;}
+</style>
+</head>
+<body>
+<div id="app">
+  <video id="cam" autoplay playsinline muted></video>
+  <div id="overlay">
+    <img id="sticker" class="sticker" src="ceremony_sign.png" alt="看板">
+  </div>
+</div>
+
+<div id="ui">
+  <button id="btnSnap">写真を撮る（ダウンロード）</button>
+  <button id="btnReset">初期位置に戻す</button>
+</div>
+
+<script>
+(async function(){
+  const video = document.getElementById('cam');
+  const sticker = document.getElementById('sticker');
+  const overlay = document.getElementById('overlay');
+  const btnSnap = document.getElementById('btnSnap');
+  const btnReset = document.getElementById('btnReset');
+
+  // カメラ起動
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" } }, 
+      audio:false
+    });
+    video.srcObject = stream;
+  }catch(e){
+    alert('カメラへのアクセスが必要です。');
+    console.error(e);
+    return;
+  }
+
+  // ステッカー初期位置
+  let state = { x:0, y:-80, scale:1, rotation:0 };
+  function applyTransform() {
+    sticker.style.transform = `translate(-50%,-50%) translate(${state.x}px,${state.y}px) scale(${state.scale}) rotate(${state.rotation}deg)`;
+  }
+  applyTransform();
+
+  // タッチ操作
+  let pointers = new Map();
+  let base = { x:0,y:0,scale:1,rotation:0,dist:0,angle:0,cx:0,cy:0 };
+  function getCenter(p1,p2){ return { x:(p1.clientX+p2.clientX)/2, y:(p1.clientY+p2.clientY)/2 }; }
+  function getDist(p1,p2){ return Math.hypot(p1.clientX-p2.clientX, p1.clientY-p2.clientY); }
+  function getAngle(p1,p2){ return Math.atan2(p2.clientY-p1.clientY,p2.clientX-p1.clientX)*180/Math.PI; }
+
+  overlay.addEventListener('pointerdown', e=>{
+    overlay.setPointerCapture(e.pointerId);
+    pointers.set(e.pointerId, e);
+    if(pointers.size===1){
+      base.x=state.x; base.y=state.y; base.cx=e.clientX; base.cy=e.clientY;
+    } else if(pointers.size===2){
+      const it=Array.from(pointers.values());
+      base.dist=getDist(it[0],it[1]);
+      base.angle=getAngle(it[0],it[1]);
+      base.scale=state.scale;
+      base.rotation=state.rotation;
+      const c=getCenter(it[0],it[1]);
+      base.cx=c.x; base.cy=c.y;
+    }
+  });
+  overlay.addEventListener('pointermove', e=>{
+    if(!pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId,e);
+    if(pointers.size===1){
+      const dx=e.clientX-base.cx, dy=e.clientY-base.cy;
+      state.x=base.x+dx;
+      state.y=base.y+dy;
+      applyTransform();
+    } else if(pointers.size>=2){
+      const it=Array.from(pointers.values());
+      const dist=getDist(it[0],it[1]), angle=getAngle(it[0],it[1]);
+      const scaleFactor = dist/base.dist;
+      state.scale=Math.max(0.2, Math.min(5, base.scale*scaleFactor));
+      state.rotation=base.rotation + (angle-base.angle);
+      applyTransform();
+    }
+  });
+  overlay.addEventListener('pointerup', e=>{ overlay.releasePointerCapture(e.pointerId); pointers.delete(e.pointerId); });
+  overlay.addEventListener('pointercancel', e=>{ pointers.delete(e.pointerId); });
+  overlay.addEventListener('wheel', e=>{ e.preventDefault(); state.scale=Math.max(0.2, Math.min(5,state.scale*(1-e.deltaY*0.001))); applyTransform(); });
+
+  // 初期位置に戻す
+  btnReset.addEventListener('click', ()=>{
+    state.x=0; state.y=-80; state.scale=1; state.rotation=0; applyTransform();
+  });
+
+  // 高解像度撮影（縮みゼロ）
+  btnSnap.addEventListener('click', ()=>{
+    btnSnap.style.display='none';
+    btnReset.style.display='none';
+
+    const canvas = document.createElement('canvas');
+    const videoWidth = video.videoWidth;
+    const videoHeight = video.videoHeight;
+    canvas.width = videoWidth;
+    canvas.height = videoHeight;
+    const ctx = canvas.getContext('2d');
+
+    // object-fit: cover で切り取られた領域を計算
+    const vRect = video.getBoundingClientRect();
+    const overlayRect = overlay.getBoundingClientRect();
+    const videoAspect = videoWidth / videoHeight;
+    const rectAspect = vRect.width / vRect.height;
+
+    let sx=0, sy=0, sWidth=videoWidth, sHeight=videoHeight;
+    if(rectAspect > videoAspect){
+      // 横幅に合わせるので上下をカット
+      sHeight = videoWidth / rectAspect;
+      sy = (videoHeight - sHeight)/2;
+    } else {
+      // 高さに合わせるので左右をカット
+      sWidth = videoHeight * rectAspect;
+      sx = (videoWidth - sWidth)/2;
+    }
+
+    // video 描画
+    ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, canvas.width, canvas.height);
+
+    // ステッカー描画
+    const sRect = sticker.getBoundingClientRect();
+    const scaleX = canvas.width / overlayRect.width;
+    const scaleY = canvas.height / overlayRect.height;
+    const cx = (sRect.left + sRect.width/2 - overlayRect.left) * scaleX;
+    const cy = (sRect.top + sRect.height/2 - overlayRect.top) * scaleY;
+    const sw = sRect.width * scaleX;
+    const sh = sRect.height * scaleY;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(state.rotation * Math.PI / 180);
+    ctx.drawImage(sticker, -sw/2, -sh/2, sw, sh);
+    ctx.restore();
+
+    // ダウンロード
+    const url = canvas.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'ar_photo_hd.png';
+    a.click();
+
+    btnSnap.style.display='block';
+    btnReset.style.display='block';
+  });
+
+})();
+</script>
+</body>
+</html>
